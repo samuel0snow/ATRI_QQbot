@@ -23,6 +23,7 @@ export default class NapCatWebSocketAdapter {
       host: process.env.NAPCAT_HOST || '127.0.0.1',
       port: process.env.NAPCAT_PORT || 6195,
       token: process.env.NAPCAT_TOKEN || '',
+      qqAccount: process.env.QQ_ACCOUNT || '',
     };
   }
 
@@ -126,8 +127,10 @@ export default class NapCatWebSocketAdapter {
    */
   async handleMessage(napcatMessage) {
     try {
+      console.log('🔍 开始处理消息:', JSON.stringify(napcatMessage, null, 2));
+      
       // 忽略机器人自己发送的消息
-      if (napcatMessage.message_type === 'group' && napcatMessage.sender?.user_id === this.botConfig.qqAccount) {
+      if (napcatMessage.message_type === 'group' && napcatMessage.sender?.user_id === this.config.qqAccount) {
         console.log('📋 忽略机器人自己发送的消息');
         return;
       }
@@ -144,6 +147,11 @@ export default class NapCatWebSocketAdapter {
 
       // 调用AI处理消息
       const response = await this.bot.processMessage(internalMessage);
+      
+      if (!response) {
+        console.log('📋 AI返回空回复，不发送消息');
+        return;
+      }
       
       console.log('📤 发送回复:', response.substring(0, 50) + '...');
 
@@ -162,26 +170,50 @@ export default class NapCatWebSocketAdapter {
     try {
       // OneBot 11 协议格式
       if (napcatMessage.post_type === 'message') {
-        let content = napcatMessage.raw_message || napcatMessage.message;
+        let content = '';
         
         // 处理群聊中的@指令
         if (napcatMessage.message_type === 'group') {
-          // 检查是否有@行为（任何@都可以触发回复）
-          const atRegex = /@\S+/g;
-          const hasAt = atRegex.test(content);
-          
-          // 如果没有@任何人，忽略群聊消息
-          if (!hasAt) {
-            console.log('📋 忽略非@的群聊消息');
-            return null;
+          // 从消息数组结构中检测@行为并提取纯文本
+          if (Array.isArray(napcatMessage.message)) {
+            const hasAt = napcatMessage.message.some(seg => seg.type === 'at');
+            
+            if (!hasAt) {
+              console.log('📋 忽略非@的群聊消息');
+              return null;
+            }
+            
+            // 只提取文本段，忽略@和图片等其他类型
+            content = napcatMessage.message
+              .filter(seg => seg.type === 'text')
+              .map(seg => seg.data?.text || '')
+              .join('')
+              .trim();
+          } else {
+            // 兼容旧格式（raw_message字符串）
+            const rawContent = napcatMessage.raw_message || '';
+            const hasAt = /\[CQ:at,qq=\d+\]/.test(rawContent);
+            if (!hasAt) {
+              console.log('📋 忽略非@的群聊消息');
+              return null;
+            }
+            content = rawContent.replace(/\[CQ:at,qq=\d+\]/g, '').trim();
           }
-          
-          // 移除所有@标记
-          content = content.replace(atRegex, '').trim();
           
           // 如果消息为空，可能只是@了机器人，返回一个简单的问候
           if (!content) {
             content = '你好';
+          }
+        } else {
+          // 私聊消息：从数组提取文本或使用raw_message
+          if (Array.isArray(napcatMessage.message)) {
+            content = napcatMessage.message
+              .filter(seg => seg.type === 'text')
+              .map(seg => seg.data?.text || '')
+              .join('')
+              .trim();
+          } else {
+            content = napcatMessage.raw_message || '';
           }
         }
 

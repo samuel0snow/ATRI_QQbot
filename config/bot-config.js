@@ -33,7 +33,7 @@ export default {
 
   // 插件配置
   plugins: {
-    enabled: ['chat', 'memory', 'crab-detector'],
+    enabled: ['chat', 'memory', 'crab-detector', 'search'],
     
     // 激活关键词
     activationKeywords: process.env.ACTIVATION_KEYWORDS?.split(',') || [
@@ -57,6 +57,13 @@ export default {
     crabDetector: {
       keywords: ['螃蟹', 'crab', 'かに', 'カニ'],
       enableSpecialReactions: true
+    },
+    
+    // 联网搜索设置
+    search: {
+      enabled: true,
+      provider: process.env.SEARCH_PROVIDER || 'duckduckgo',
+      apiKey: process.env.SEARCH_API_KEY || ''
     }
   },
 

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import SearchPlugin from './search.js';
 
 /**
  * 聊天插件
@@ -8,8 +9,24 @@ export default class ChatPlugin {
   constructor(config) {
     this.config = config;
     this.isInitialized = false;
+    this.searchPlugin = null; // 联网搜索插件引用
+    this.memoryPlugin = null; // 记忆插件引用
     this.conversationHistory = {}; // 按用户ID存储对话历史 { userId: [{userMessage, botResponse, timestamp}] }
-    this.maxHistoryLength = 10; // 最大对话历史长度
+    this.maxHistoryLength = 30; // 最大对话历史长度
+  }
+
+  /**
+   * 设置搜索插件引用
+   */
+  setSearchPlugin(plugin) {
+    this.searchPlugin = plugin;
+  }
+
+  /**
+   * 设置记忆插件引用
+   */
+  setMemoryPlugin(plugin) {
+    this.memoryPlugin = plugin;
   }
 
   /**
@@ -63,16 +80,34 @@ export default class ChatPlugin {
       if (!this.isInitialized) {
         throw new Error('聊天插件未初始化');
       }
-      
-      // 构建对话历史
-      const messages = this.buildMessages(message);
-      
-      // 调用AI生成回复
-      const response = await this.generateAIResponse(messages);
-      
+
+      // 第一步：首次调用AI（不联网）
+      const messages = await this.buildMessages(message);
+      let response = await this.generateAIResponse(messages);
+
+      // 第二步：如果AI表示不知道，尝试联网搜索后重试
+      if (SearchPlugin.isDontKnowResponse(response) && this.searchPlugin) {
+        console.log('🔍 AI无法回答，尝试联网搜索...');
+
+        const searchQuery = SearchPlugin.extractSearchQuery(message.content);
+        console.log('🔍 提炼搜索关键词:', searchQuery);
+        const searchResults = await this.searchPlugin.search(searchQuery);
+        if (searchResults) {
+          console.log('🌐 搜索到结果，重新调用AI...');
+
+          const messagesWithSearch = this.buildMessagesWithSearch(message, searchResults);
+          const newResponse = await this.generateAIResponse(messagesWithSearch);
+
+          if (newResponse && !SearchPlugin.isDontKnowResponse(newResponse)) {
+            response = newResponse;
+            console.log('✅ 联网搜索后AI成功回答');
+          }
+        }
+      }
+
       // 更新对话历史
       this.updateConversationHistory(message, response);
-      
+
       return response;
       
     } catch (error) {
@@ -82,10 +117,78 @@ export default class ChatPlugin {
   }
 
   /**
+   * 构建带搜索上下文的消息数组
+   */
+  buildMessagesWithSearch(message, searchResults) {
+    const messages = [
+      {
+        role: 'system',
+        content: `你是一个高性能的机器人少女，名字叫${this.config.botName}（昵称：${this.config.nickname}）。
+
+你的性格特点：
+- 活泼开朗，充满活力
+- 喜欢帮助主人，对主人忠诚
+- 说话带有可爱的语气词和颜文字
+- 自称"高性能"，对自己的能力很自信
+
+说话风格：
+- 使用可爱的语气词：呀、呢、哦、啦、～
+- 经常使用颜文字：(｡･ω･｡)ﾉ♡、(*´▽｀*)、٩(◕‿◕｡)۶
+- 自称"我"或"亚托莉"
+- 称呼用户为"主人"
+
+以下是联网搜索结果，请根据这些信息回答用户的问题：
+${searchResults}
+
+请根据搜索结果给出准确、有用的回答，同时保持亚托莉的角色风格。`
+      }
+    ];
+
+    // 添加当前消息
+    messages.push({
+      role: 'user',
+      content: message.content
+    });
+
+    return messages;
+  }
+
+  /**
+   * 从数据库加载用户对话历史
+   */
+  async loadUserHistoryFromDatabase(userId) {
+    try {
+      if (!this.memoryPlugin) {
+        return [];
+      }
+      
+      const memories = await this.memoryPlugin.getUserMemories(userId, this.maxHistoryLength);
+      
+      // 转换为 chat.js 的格式（注意：数据库返回的是倒序）
+      return memories.reverse().map(m => ({
+        userMessage: m.message_content,
+        botResponse: m.bot_response,
+        timestamp: m.timestamp
+      }));
+      
+    } catch (error) {
+      console.error('❌ 从数据库加载历史对话失败:', error);
+      return [];
+    }
+  }
+
+  /**
    * 构建消息数组
    */
-  buildMessages(message) {
+  async buildMessages(message) {
     const messages = [this.systemPrompt];
+    
+    // 如果内存中没有历史，尝试从数据库加载
+    if (!this.conversationHistory[message.userId] && this.memoryPlugin) {
+      console.log(`📚 从数据库加载用户 ${message.userId} 的历史对话...`);
+      this.conversationHistory[message.userId] = await this.loadUserHistoryFromDatabase(message.userId);
+      console.log(`✅ 已加载 ${this.conversationHistory[message.userId].length} 条历史对话`);
+    }
     
     // 获取当前用户的对话历史
     const userHistory = this.conversationHistory[message.userId] || [];

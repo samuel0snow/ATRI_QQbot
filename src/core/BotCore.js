@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import ChatPlugin from '../plugins/chat.js';
 import MemoryPlugin from '../plugins/memory.js';
 import CrabDetectorPlugin from '../plugins/crab-detector.js';
+import SearchPlugin from '../plugins/search.js';
 
 // 加载环境变量
 dotenv.config();
@@ -70,10 +71,15 @@ export default class BotCore {
           }
         },
         plugins: {
-          enabled: ['chat', 'memory', 'crab-detector'],
+          enabled: ['chat', 'memory', 'crab-detector', 'search'],
           activationKeywords: this.defaultConfig.activationKeywords,
           autoReply: this.defaultConfig.autoReply,
-          privateAutoReply: this.defaultConfig.privateAutoReply
+          privateAutoReply: this.defaultConfig.privateAutoReply,
+          search: {
+            enabled: true,
+            provider: process.env.SEARCH_PROVIDER || 'duckduckgo',
+            apiKey: process.env.SEARCH_API_KEY || ''
+          }
         }
       };
       
@@ -119,6 +125,26 @@ export default class BotCore {
         await crabPlugin.initialize();
         this.plugins.set('crab-detector', crabPlugin);
         console.log('✅ 螃蟹检测插件加载完成');
+      }
+
+      // 初始化联网搜索插件
+      if (enabledPlugins.includes('search')) {
+        const searchPlugin = new SearchPlugin(this.config);
+        await searchPlugin.initialize();
+        this.plugins.set('search', searchPlugin);
+        console.log('✅ 联网搜索插件加载完成');
+      }
+
+      // 将搜索插件注入聊天插件（用于AI无法回答时的搜索回退）
+      if (this.plugins.has('chat') && this.plugins.has('search')) {
+        this.plugins.get('chat').setSearchPlugin(this.plugins.get('search'));
+        console.log('🔗 搜索插件已关联到聊天插件');
+      }
+
+      // 将记忆插件注入聊天插件（用于离线记忆）
+      if (this.plugins.has('chat') && this.plugins.has('memory')) {
+        this.plugins.get('chat').setMemoryPlugin(this.plugins.get('memory'));
+        console.log('🔗 记忆插件已关联到聊天插件');
       }
       
       console.log(`🎯 共加载 ${this.plugins.size} 个插件`);
@@ -199,12 +225,9 @@ export default class BotCore {
       return true;
     }
     
-    // 群聊消息需要激活关键词
+    // 群聊消息（适配器层已经检查过@行为）
     if (message.type === 'group') {
-      const content = message.content.toLowerCase();
-      return this.config.plugins.activationKeywords.some(keyword =>
-        content.includes(keyword.toLowerCase())
-      );
+      return true;
     }
     
     return false;
