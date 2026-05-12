@@ -116,7 +116,7 @@ QQ_ACCOUNT=你的QQ号
 QQ_PASSWORD=你的QQ密码
 
 # AI模型配置
-DEEPSEEK_API_KEY=sk-your-deepseek-api-key
+DEEPSEEK_API_KEY=密钥
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 
 # 机器人配置

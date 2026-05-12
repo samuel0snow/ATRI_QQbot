@@ -76,7 +76,7 @@ docker logs atri-bot-websocket
 ### .env文件
 ```env
 # DeepSeek配置
-DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_API_KEY=密钥
 DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
 
 # NapCat WebSocket配置
